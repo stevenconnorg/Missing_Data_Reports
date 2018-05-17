@@ -1,5 +1,5 @@
 ### setup packages with init.R
-source("R/init.R")
+#source("R/init.R")
 
 ### get gdb and target-gdb paths
 installationGDBs <- list.files(paste0(getwd(),"/dat/gdbs-complete"),full.names = T,pattern=".gdb")
