@@ -1,0 +1,5 @@
+out/Reports/*/*
+dat/*
+packrat/lib*/
+packrat/bundles*/
+.Rproj.user

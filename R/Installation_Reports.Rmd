@@ -1,0 +1,871 @@
+---
+output:
+  bookdown::pdf_document2:
+    latex_engine: xelatex
+    toc: true
+    toc_depth: 3
+    number_sections: true
+    fig_caption: true
+    keep_md: true
+    documentclass: report
+    self_contained: true
+  bookdown::gitbook:
+    split_by: none
+    self_contained: true
+    search: yes
+    edit : no
+    config:
+      toc:
+        before: |
+          <li><a href="./">Missing and Indeterminant Data Reports</a></li>
+        after: |
+          <li><a href="https://github.com/rstudio/bookdown" target="blank">Published with bookdown</a></li>
+      download: ["pdf"]
+author:  
+- Steven C. Gonzalez
+- Air Force Civil Engineering Center (AFCEC)
+- Geospatial Integration Office (GIO)
+params: 
+    set_title: "My Title!"
+subtitle: <h1> Missing and Indeterminant Data Report</h1>
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+link-citations: true
+bibliography: [packages.bib]
+biblio-style: apalike
+linestretch: 1.25
+header-includes:
+  - \usepackage {hyperref}
+  - \hypersetup{linktocpage}
+  - \hypersetup {colorlinks = true,linkcolor = blue, urlcolor = blue}
+  - \usepackage{booktabs}
+  - \usepackage{longtable}
+  - \usepackage{array}
+  - \usepackage{multirow}
+  - \usepackage[table]{xcolor}
+  - \usepackage{wrapfig}
+  - \usepackage{float}
+  - \usepackage{colortbl}
+  - \usepackage{pdflscape}
+  - \usepackage{tabu}
+  - \usepackage{threeparttable}
+  - \usepackage[normalem]{ulem}
+  - \usepackage{fancyhdr}
+  - \pagestyle{fancy}
+  - \fancyfoot[L]{Air Force Civil Engineering Center}
+  - \fancyfoot[R]{Geospatial Integration Office}
+  - \fancyhead[L]{}
+  - \renewcommand{\footrulewidth}{0.5pt}\usepackage{fancyhdr}
+---
+
+---
+title: `r paste0(gsub("_"," ",installationName))`
+---
+```{r cLoadlibs, echo=FALSE,message=FALSE,error=FALSE,warning=FALSE}
+suppressWarnings(suppressPackageStartupMessages(library(ggplot2)))
+suppressWarnings(suppressPackageStartupMessages(library(dplyr)))
+suppressWarnings(suppressPackageStartupMessages(library(leaflet)))
+suppressWarnings(suppressPackageStartupMessages(library(DT)))
+suppressWarnings(suppressPackageStartupMessages(library(stringr)))
+library(knitr)
+library(markdown)
+library(rmarkdown)
+library(sf)
+library(devtools)
+library(Rcpp)
+library(kableExtra)
+library(dplyr)
+library(purrr)
+library(anchors)
+library(bookdown)
+library(tinytex)
+
+```
+
+```{r knitr_options, echo=FALSE}
+opts_knit$set(root.dir = normalizePath("../"))
+options(knitr.table.format = "latex")
+```
+
+```{r cReaddat, echo=FALSE,message=FALSE,error=FALSE,warning=FALSE}
+Overview <- sf::st_read(dsn = installationGDB, layer = paste0(compName,"_Overview"),quiet=TRUE)
+MissingFDS <- sf::st_read(dsn = installationGDB, layer = paste0(compName,"_MissingFDS"),quiet=TRUE)
+MissingFCs <- sf::st_read(dsn = installationGDB, layer = paste0(compName,"_MissingFCs"),quiet=TRUE)
+MissingFLD <- sf::st_read(dsn = installationGDB, layer = paste0(compName,"_MissingFields"),quiet=TRUE)
+EmptyFeatureClasses <- sf::st_read(dsn = installationGDB, layer = paste0(compName,"_EmptyFeatureClasses"),quiet=TRUE)
+Determinant_Values_by_FC <- sf::st_read(dsn = installationGDB, layer = paste0(compName,"_Determinant_Values_by_FC"),quiet=TRUE)
+NullCellCountbyFC <- sf::st_read(dsn = installationGDB, layer = paste0(compName,"_NullCellCountbyFC"),quiet=TRUE)
+TBDCellCountbyFC <- sf::st_read(dsn = installationGDB, layer = paste0(compName,"_TBDCellCountbyFC"),quiet=TRUE)
+OtherCellCountbyFC <- sf::st_read(dsn = installationGDB, layer = paste0(compName,"_OtherCellCountbyFC"),quiet=TRUE)
+MissingData <- sf::st_read(dsn = installationGDB, layer = paste0(compName,"_MissingData"),quiet=TRUE)
+Summary_Pct_by_FC<- sf::st_read(dsn = installationGDB, layer = paste0(compName,"_Summary_Cell_Pct_by_FC"),quiet=TRUE)
+incPopCountbyFC<- MissingData %>% dplyr::select(INC_POP_VALS,FDS,FC) %>% group_by(FDS,FC) %>% filter(INC_POP_VALS != '') %>% filter(INC_POP_VALS != ">90% of determinant values are unique -- not listed here.") %>% summarise("Incorrectly_Populated_Field_Count" = n()) %>% filter("Incorrectly_Populated_Field_Count" > 0 )
+
+# for when no empty feature classes exist
+EmptyFeatureClasses <- sf::st_read(dsn = installationGDB, layer = paste0(compName,"_EmptyFeatureClasses"),quiet=TRUE)
+EmptyFeatureClasses<-EmptyFeatureClasses[ , -which(names(EmptyFeatureClasses) %in% c("INSTALLATION"))]
+colnames(EmptyFeatureClasses)[3]<-"Empty_Field_Count"
+func <- function(z) if (is.numeric(z)) sum(z) else '-'
+sumrow <- as.data.frame(lapply(EmptyFeatureClasses, func))
+sumrow[nrow(sumrow),ncol(sumrow)]<- paste0(sumrow[nrow(sumrow),ncol(sumrow)]," Total Empty Fields")
+sumrow[nrow(sumrow),1]<-"-"
+sumrow[nrow(sumrow),2]<-"-"
+
+installationName = gsub("_"," ",installationName)
+
+```
+
+
+\pagebreak
+
+
+# Report Overview
+The purpose of this report is to give  an overview of data missing from `r installationName`'s geodatabase when compared with the Air Force (AF) [Spatial Data Standards for Facilities, Infrastructure, and Environment (SDSFIE)](https://www.sdsfieonline.org/) 3.101 geodatabase schema. The Air Force Data Model (GeoBase 3.1.0.1) developed under the [AF GeoBase mission](https://www.sdsfieonline.org/Components/USAF) is based upon the SDSFIE-V 3.1 Gold model, which complies with  the Department of Defense Instruction (DoDI) 8130.01, *Installation Geospatial Information and Service* (IGI&S), but  allows some greater flexibility within the program to aid the AF mission. As part of the IGI&S program, this report complies with the Fiscal Year 2017 Common Installation Picture (CIP) data call required by DoDI 8130.01.
+
+**The template geodatabase used for this report is the `r compName` AF SDSFIE 3.101 geodatabase.**
+
+Upon receiving `r installationName`'s geodatabase, standard Feature Classes were migrated to standard Feature Datasets to match the `r compName` AF SDSFIE 3.101 geodatabase, where required.  Then, this report identifies discrepancies between `r installationName`'s geodatabase in comparison with the `r compName` geodatabase schema, following the following format:  
+
+1. Section \@ref(summary) lists a summary of findings regarding indeterminant and missing data in `r installationName`'s geodatabase in comparison with the `r compName` geodatabase schema.
+2. Section \@ref(missFDS) lists which AF SDSFIE standard Feature Datasets are missing from `r installationName`'s geodatabase in comparison with the `r compName` geodatabase schema.
+3. Sections \@ref(missFCFDS) - \@ref(missFC) lists which AF SDSFIE standard Feature Classes are missing from those Feature Datasets for each of the AF SDSFIE standard Feature Datasets in the `r compName` geodatabase schema that are included in `r installationName`'s geodatabase.
+4. Section \@ref(missFLDincFC) continues to identify the counts of Missing Fields per standard Feature Classes included. Of the included Feature Classes, empty Feature Classes are listed in the 'Empty Feature Classes' section (Section \@ref(emptFC)).
+5. Section \@ref(emptFLDneFC) identifies the counts of empty fields from non-empty, standard Feature Classes included in `r installationName`'s geodatabase.
+6. Section \@ref(detindtVal) then analyzes each AF SDSFIE standard Feature Class within `r installationName`'s geodatabase for indeterminant data at the Attribute level for each of the AF SDSFIE standard Feature Dataset/Feature Class combinations from `r compName` schema that are included in `r installationName`'s geodatabase. 
+7. Section \@ref(pctindtFC) gives an overview of the percent of Attribute Table cells identified as 'Null', 'TBD', and 'Other' per Feature Class.
+8. Sections \@ref(nullCnt), \@ref(tbdCnt), and \@ref(otherCnt) give the counts of 'Null', 'TBD', and 'Other' data (called: 'indeterminant' data), respectively, by each SDSFIE Feature Dataset/Feature Class in `r installationName`'s Geodatabase
+9. Finally, this report identifies noted discrepancies between the target `r compName` schema and `r installationName`'s geodatabase (Section \@ref(diff)) for (1) Fields with Incorrectly Populated Domains (Section \@ref(diffIncDom)) and, (2) Fields Included in `r installationName`'s Geodatabase Not in the `r compName` schema (Section \@ref(diffFLD)).  
+
+The data utilized to produce this report may be found within the `r paste0(installationName,"_Indeterminant_Data-",compName)` Excel Workbook accompanying this  report. Specific references to the tables found in this Excel Workbook are found throughout the report where further details may be warranted.
+
+\pagebreak
+
+# Summary of Findings {#summary}
+1. **`r Overview$MissingFDScount`** : Total Number of Missing Feature Datasets   
+2. **`r Overview$MissingFCcount`** : Total Number of Missing Feature Classes within included Feature Datasets  
+3. **`r Overview$InclFeatsEmpty` **: Total Number of Empty Feature Classes within included Feature Datasets  
+4. **`r Overview$TotalEmptyFieldsfromEmptyFC`** : Total Number of Empty Fields from Empty Feature Classes  
+5. **`r Overview$TotalEmptyFields`** : Total Number of Empty Fields from non-Empty Feature Classes   
+6. `r formatC(sum(MissingData$TOTAL_DET_COUNT), format="d", big.mark=",")`/`r formatC(sum(MissingData$POP_VALS_COUNT), format="d", big.mark=",")` **(`r round(sum(MissingData$TOTAL_DET_COUNT) / (sum(MissingData$POP_VALS_COUNT))*100,digits=2)`%)**: Total number of cells are populated with determinant data (i.e.: **not** 'Null', 'TBD', or 'Other')
+
+7. `r formatC(sum(MissingData$TOTAL_INDT_COUNT), format="d", big.mark=",")`/`r formatC(sum(MissingData$POP_VALS_COUNT), format="d", big.mark=",")` **(`r round(sum(MissingData$TOTAL_INDT_COUNT) / (sum(MissingData$POP_VALS_COUNT))*100,digits=2)`%)**: Total number of cells are missing data (i.e.: 'Null', 'TBD', or 'Other')
+
+    + `r formatC(sum(MissingData$NULL_FC_COUNT), format="d", big.mark=",")`/`r formatC(sum(MissingData$POP_VALS_COUNT), format="d", big.mark=",")` **(`r round(sum(MissingData$NULL_FC_COUNT) / (sum(MissingData$POP_VALS_COUNT))*100,digits=2)`%)**: Total number of cells are 'Null' data  
+    
+    + `r formatC(sum(MissingData$TBD_FC_COUNT), format="d", big.mark=",")`/`r formatC(sum(MissingData$POP_VALS_COUNT), format="d", big.mark=",")` **(`r round(sum(MissingData$TBD_FC_COUNT) / (sum(MissingData$POP_VALS_COUNT))*100,digits=2)`%)**: Total number of cells are 'TBD' data  
+    
+    + `r formatC(sum(MissingData$OTHER_FC_COUNT), format="d", big.mark=",")`/`r formatC(sum(MissingData$POP_VALS_COUNT), format="d", big.mark=",")` **(`r round(sum(MissingData$OTHER_FC_COUNT) / (sum(MissingData$POP_VALS_COUNT))*100,digits=2)`%)**: Total number of cells are 'Other' data    
+8. **`r sum(incPopCountbyFC$Incorrectly_Populated_Field_Count)`** : Total Number of Fields with Incorrectly Populated Domains (within included standard Feature Classes)  
+9. **`r nrow(MissingData[MissingData$NON_SDS=='T',])`** : Total Number of Fields Included in `r installationName`'s Geodatabase **Not** Included in the `r compName` Schema (within included standard Feature Classes)  
+
+
+\pagebreak
+
+
+
+# Missing Feature Datasets {#missFDS}
+This section provides an overview of the AF SDSFIE standard Feature Datasets in the `r compName` schema that are not also included in `r installationName`'s geodatabase. If `r installationName`'s geodatabase was delivered to AFCEC without Feature Datasets, 'loose' standard Feature Classes were first migrated to the respective Feature Dataset according to AF SDSFIE 3.101 standards.
+
+Overall, `r installationName` has `r nrow(MissingFDS)` missing AF SDSFIE standard Feature Datasets.  
+
+Please see Table \@ref(tab:cmissFDS) below for a complete listing of the AF SDSFIE standard Feature Datasets  missing from `r installationName`'s geodatabase, where applicable.  This information is also found in `r installationName`'s geodatabase under the '`r compName`_MissingFDS' table.
+
+
+```{r cmissFDS, cache=FALSE,echo=FALSE,message=FALSE,error=FALSE,warning=FALSE}
+# 
+# 
+
+MissingFDS <- sf::st_read(dsn = installationGDB, layer = paste0(compName,"_MissingFDS"),quiet=TRUE)
+MissingFDS<-MissingFDS[ , -which(names(MissingFDS) %in% c("INSTALLATION"))]
+df<-as.data.frame(MissingFDS)
+sumrow<-  paste0(nrow(df)," Total Missing Feature Datasets")
+colnames(df)[1]<- "FDS"
+
+if (nrow(df) > 0 ){
+  kable(df, booktabs = T, linesep = "",caption="Missing Feature Datasets") %>% 
+  kable_styling(latex_options = c("hold_position","repeat_header","striped"))  %>%
+    footnote(general= c(sumrow)) -> tb2
+  tb2
+} else {
+  kable(df,caption="Missing Feature Datasets") %>% 
+  kable_styling(latex_options = c("hold_position")) %>%
+    footnote(general= c(sumrow)) -> tb2
+  tb2
+}
+
+
+
+
+```
+
+
+
+# Missing and Empty Feature Classes {#miss-empFC}
+## Missing Feature Classes by Feature Dataset {#missFCFDS}
+Of the required Feature Datasets within the `r compName` schema included in `r installationName`'s geodatabase, `r nrow(MissingFCs)` of the standard Feature Classes are not present. Table \@ref(tab:cmissFCFDS) below gives the count of missing Feature Classes per Feature Dataset, sorted in ascending order, where applicable.  
+
+
+```{r cmissFCFDS, cache=FALSE,echo=FALSE,message=FALSE,error=FALSE,warning=FALSE}
+MissingFCs <- sf::st_read(dsn = installationGDB, layer = paste0(compName,"_MissingFCs"),quiet=TRUE)
+MissingFCsbyFDS<-MissingFCs[ , -which(names(MissingFCs) %in% c("INSTALLATION"))]
+MissingFCsbyFDS<-MissingFCsbyFDS[,c("FDS","FC_MISSING")]
+MissingFCsbyFDS<-MissingFCsbyFDS %>% group_by(FDS) %>% summarise("Missing_FC_Count" = n()) %>% arrange(Missing_FC_Count)
+func <- function(z) if (is.numeric(z)) sum(z) else '-'
+sum <- sum(MissingFCsbyFDS$Missing_FC_Count)
+sumrow<- paste0(sum," Total Missing Feature Classes")
+df<-MissingFCsbyFDS
+
+if (nrow(df) > 0 ){
+  kable(df, linesep = "", booktabs = T, align = "c", longtable = T,caption="Missing Feature Classes by Feature Dataset")  %>% 
+  kable_styling(latex_options = c("hold_position","repeat_header","striped")) %>%
+  column_spec(1, bold=T) %>%
+    footnote(general= c(sumrow))-> tb2
+  tb2
+} else {
+  kable(df,caption="Missing Feature Classes by FDS")  %>% 
+  kable_styling(latex_options = c("hold_position","repeat_header")) %>%
+    footnote(general= c(sumrow))  -> tb2
+  tb2
+}
+
+```
+
+
+
+## Missing Feature Classes {#missFC}
+Of the required Feature Datasets within the `r compName` schema included in `r installationName`'s geodatabase, `r nrow(MissingFCs)` of the required Feature Classes are not present. Table \@ref(tab:cmissFC) below gives a listing of all the Feature Classes missing, along with the associated Feature Dataset, where applicable. This information is also found in the'`r compName`_MissingFCs' table/sheet in the `r paste0(installationName,"_Indeterminant_Data-",compName)` Excel Workbook provided with this report.
+
+
+```{r cmissFC, cache=FALSE,echo=FALSE,message=FALSE,error=FALSE,warning=FALSE}
+MissingFCs <- sf::st_read(dsn = installationGDB, layer = paste0(compName,"_MissingFCs"),quiet=TRUE)
+MissingFCs<-MissingFCs[ , -which(names(MissingFCs) %in% c("INSTALLATION"))]
+MissingFCs<-MissingFCs[,c("FDS","FC_MISSING")]
+df<-MissingFCs
+
+if (nrow(df) > 0 ){
+  nrow<-nrow(df)
+  sumrow<-paste0(nrow," Total Missing Feature Classes")
+  kable(df,linesep = "", booktabs = T, align = "c", longtable = T, caption = "Missing Feature Classes")  %>% 
+  kable_styling(latex_options = c( "hold_position","repeat_header","striped"))%>%
+    footnote(general= c(sumrow))  %>%
+  column_spec(1, bold=T) -> tb2
+  tb2
+} else {
+  sumrow<-paste0("0 Total Missing Feature Classes")
+  kable(df, caption = "Missing Feature Classes")  %>% 
+  kable_styling(latex_options = c( "hold_position")) %>%
+    footnote(general= c(sumrow)) -> tb2
+  tb2
+}
+```
+
+
+## Missing Field Counts from Included Feature Classes {#missFLDincFC}
+Of the standard Feature Classes included, `r nrow(MissingFLD)` standard fields for said Feature Classes in `r compName` schema are missing in `r installationName`'s geodatabase. Table \@ref(tab:cmissFLDincFC) gives a count of the *fields* missing from each standard Feature Class in `r installationName`'s geodatabase. For the purposes of this report, the following fields are not included in this search: 'SHAPE,' 'DATEEDITED,' 'EDITOR,' 'CREATOR,' 'CREATEDATE'.
+
+For a more detailed breakdown of the individual missing fields from standard Feature Classes, see the '`r compName`_MissingFields' table/sheet in the `r paste0(installationName,"_Indeterminant_Data-",compName)` Excel Workbook.
+```{r cmissFLDincFC, cache=FALSE,echo=FALSE,message=FALSE,error=FALSE,warning=FALSE}
+MissingFLD <- sf::st_read(dsn = installationGDB, layer = paste0(compName,"_MissingFields"),quiet=TRUE)
+MissingFLD<-MissingFLD[ , -which(names(MissingFLD) %in% c("INSTALLATION"))]
+MissingFLDcount<-MissingFLD %>% group_by(FDS,FC) %>% summarise(Missing_Field_Count = n())
+
+df<-as.data.frame(MissingFLDcount)
+
+
+if (nrow(df) > 0 ){
+  sum <- sum(df$Missing_Field_Count)
+  sumrow<- paste0(sum," Total Missing Fields")
+  kable(df, linesep = "", booktabs = T, align = "c", longtable = T, caption = "Missing Field Counts by Feature Class")  %>% 
+  kable_styling(latex_options = c( "hold_position","repeat_header","striped")) %>%
+    footnote(general= c(sumrow))   %>%
+  column_spec(1, bold=T)  -> tb2
+  tb2
+} else {
+  sumrow<-paste0("0 Total Missing Fields")
+  kable(df, caption = "Missing Field Counts by Feature Class")  %>% 
+  kable_styling(latex_options = c( "hold_position")) %>%
+    footnote(general= c(sumrow)) -> tb2
+  tb2
+}
+
+
+```
+
+
+
+
+## Empty Feature Classes {#emptFC}
+
+```{r cemptFC1, cache=FALSE,echo=FALSE,message=FALSE,error=FALSE,warning=FALSE}
+EmptyFeatureClasses <- sf::st_read(dsn = installationGDB, layer = paste0(compName,"_EmptyFeatureClasses"),quiet=TRUE)
+EmptyFeatureClasses<-EmptyFeatureClasses[ , -which(names(EmptyFeatureClasses) %in% c("INSTALLATION"))]
+colnames(EmptyFeatureClasses)[3]<-"Empty_Field_Count"
+
+
+sumEmptyFLD <- sum(EmptyFeatureClasses$Empty_Field_Count)
+
+
+```
+Of the Feature Classes within the `r compName` schema included in `r installationName`'s geodatabase, `r Overview$InclFeatsEmpty` standard Feature Classes are empty. Table \@ref(tab:cemptFC2) gives a listing of all the empty Feature Classes in `r installationName`'s geodatabase. In total, `r sumEmptyFLD` empty Fields are present due to empty Feature Classes. This information is also found in the `r paste0(installationName,"_Indeterminant_Data-",compName)` Excel Workbook in the '`r compName`_EmptyFeatureClasses' table/sheet. 
+
+```{r cemptFC2, cache=FALSE,echo=FALSE,message=FALSE,error=FALSE,warning=FALSE}
+df<-EmptyFeatureClasses
+
+
+if (nrow(df) > 0 ){
+  sum <-sum(df$Empty_Field_Count)
+  sumrow<-paste0(sum," Total Empty Fields")
+  kable(df, linesep = "", booktabs = T, align = "c", longtable = T,caption = "Empty Feature Classes") %>% 
+  kable_styling(latex_options = c( "hold_position","repeat_header","striped"))   %>%
+  column_spec(1, bold=T)  %>%
+    footnote(general= c(sumrow)) -> tb2
+  tb2
+} else {
+  sumrow<-paste0("0 Total Empty Fields")
+  kable(df,caption = "Empty Feature Classes") %>% 
+  kable_styling(latex_options = c( "hold_position")) %>%
+    footnote(general= c(sumrow))-> tb2
+  tb2
+}
+
+
+
+```
+
+
+
+
+
+## Empty Fields from Non-Empty Feature Classes {#emptFLDneFC}
+Of the Feature Classes within the `r compName` schema included in `r installationName`'s geodatabase, `r Overview$TotalEmptyFields` empty fields are present due to non-empty Feature Classes. Table \@ref(tab:cemptFLDneFC) below gives the count of empty fields by non-empty feature classes.  
+
+
+For a more detailed breakdown of the individual empty fields from non-empty feature classes, see the '`r compName`_MissingData' table/sheet in the `r paste0(installationName,"_Indeterminant_Data-",compName)` Excel Workbook accompanying this report, where rows are 'F' for the 'EMPTY_FC' column *and* rows are '0' for the 'POP_VALS_COUNT' column.  
+
+
+```{r cemptFLDneFC, cache=FALSE,echo=FALSE,message=FALSE,error=FALSE,warning=FALSE}
+MissingData <- sf::st_read(dsn = installationGDB, layer = paste0(compName,"_MissingData"),quiet=TRUE)
+EmptyFldneFC<-MissingData %>% filter(EMPTY_FC == 'F' & POP_VALS_COUNT == 0) %>% group_by(FDS,FC) %>% summarise(Empty_Fields_Counts = n())
+func <- function(z) if (is.numeric(z)) sum(z) else '-'
+
+df<-EmptyFldneFC
+ 
+
+if (nrow(df) > 0 ){
+  sum <- sum(df$Empty_Fields_Counts)
+  sumrow<- paste0(sum," Total Empty Fields")
+  kable(df,linesep = "", booktabs = T, align = "c", longtable = T,caption = "Empty Fields from Non-Empty Feature Classes")%>% 
+  kable_styling(latex_options = c( "hold_position","repeat_header","striped"))   %>%
+  column_spec(1, bold=T) %>%
+    footnote(general= c(sumrow))-> tb2
+  tb2
+} else {
+  sumrow<- paste0("0 Total Empty Fields")
+  kable(df,caption = "Empty Fields from Non-Empty Feature Classes")%>% 
+  kable_styling(latex_options = c( "hold_position")) %>%
+    footnote(general= c(sumrow))  -> tb2
+  tb2
+}
+
+
+```
+
+
+
+# Determinant and Indeterminant Values {#detindtVal}
+```{r cdetindtVal1, cache=FALSE,echo=FALSE,message=FALSE,error=FALSE,warning=FALSE}
+Determinant_Values_by_FC <- sf::st_read(dsn = installationGDB, layer = paste0(compName,"_Determinant_Values_by_FC"),quiet=TRUE)
+Summary_Pct_by_FC<- sf::st_read(dsn = installationGDB, layer = paste0(compName,"_Summary_Cell_Pct_by_FC"),quiet=TRUE)
+Determinant_Values_by_FC<-na.omit(Determinant_Values_by_FC)
+
+```
+`r installationName`'s geodatabase was analyzed for potential gaps in data at the Attribute level. Gaps in data were determined for each standard Feature Class' Attribute Table where cell values are 'Null', 'TBD' or 'Other.'  
+
+
+Within the standard Feature Dataset/Feature Class combinations included in `r installationName`'s geodatabase, the percentage of data populated with determinant values (i.e.: data **not** classified as 'Null', 'TBD', or 'Other') are recorded in Table \@ref(tab:cdetindtVal2) below by Feature Class. The figure below gives a cursory look at the average percentage of data determined (i.e.: not 'Null', 'TBD', or 'Other') by SDSFIE Feature Dataset within `r installationName`'s geodatabase. 
+
+Within `r installationName`'s geodatabase, the '`r Determinant_Values_by_FC[which.min(Determinant_Values_by_FC[,"PERCENT_DETERMINED_VALUES"]),"FC"]`' Feature class had the minimum data determined percentage of `r round(min(Determinant_Values_by_FC$PERCENT_DETERMINED_VALUES[!is.na(Determinant_Values_by_FC$PERCENT_DETERMINED_VALUES)])*100,digits=1)`%, while the '`r Determinant_Values_by_FC[which.max(Determinant_Values_by_FC[,"PERCENT_DETERMINED_VALUES"]),"FC"]`' Feature class had the maximum data determined percentage of `r round(max(Determinant_Values_by_FC$PERCENT_DETERMINED_VALUES[!is.na(Determinant_Values_by_FC$PERCENT_DETERMINED_VALUES)])*100,digits=1)`%. On average, not including empty, standard Feature Classes, `r round(mean(Summary_Pct_by_FC$DETERMINED_PCT[!is.na(Summary_Pct_by_FC$DETERMINED_PCT)])*100,digits=1)`% of values are populated with determinant data for `r installationName`'s geodatabase *when averaged across standard Feature Classes included*. This information is also found in the `r paste0(installationName,"_Indeterminant_Data-",compName)` Excel Workbook delivered with this report under the '`r compName`_Determinant_Values_by_FC' table/sheet.  
+
+
+```{r cache=FALSE,echo=FALSE,message=FALSE,error=FALSE,warning=FALSE}
+Determinant_Values_by_FC <- sf::st_read(dsn = installationGDB, layer = paste0(compName,"_Determinant_Values_by_FC"),quiet=TRUE)
+
+Determinant_Values_by_FC<-Determinant_Values_by_FC[ , -which(names(Determinant_Values_by_FC) %in% c("INSTALLATION","TOTAL_DET_COUNT","TOTAL_INDT_COUNT"))]
+colnames(Determinant_Values_by_FC)[3] <- "Values_Determined(%)"
+Determinant_Values_by_FC$`Values_Determined(%)`<-Determinant_Values_by_FC$`Values_Determined(%)`*100
+Determinant_Values_by_FC$`Values_Determined(%)`<-round(Determinant_Values_by_FC$`Values_Determined(%)`,digits=1)
+#Determinant_Values_by_FC[is.na(Determinant_Values_by_FC)] <- "--"
+Determinant_Values_by_FC<-Determinant_Values_by_FC %>% arrange(FDS,Determinant_Values_by_FC$`Values_Determined(%)`)
+df<-na.omit(Determinant_Values_by_FC)
+
+df2 <- df %>%
+    group_by(FDS) %>%
+    dplyr::summarize(Mean = mean(`Values_Determined(%)`, na.rm=TRUE), sd=sd(`Values_Determined(%)`, na.rm=TRUE))
+df2 <- df2 %>% arrange(Mean)
+df2$FDS <- factor(df2$FDS, levels = df2$FDS[order(df2$Mean)])
+ggplot(data=df2, aes(x=FDS, y=Mean)) +
+  geom_bar(colour="white",stat="identity", position="dodge") +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))+
+  labs(title="Average Percent of Determined Values by Feature Dataset",y="Values Determined (%)",x = "SDSFIE Feature Dataset")+
+  scale_y_continuous(limits=c(0,100))
+  
+```
+
+
+```{r cdetindtVal2, cache=FALSE,echo=FALSE,message=FALSE,error=FALSE,warning=FALSE}
+
+if (nrow(df) > 0 ){
+  kable(df,linesep = "", booktabs = T, align = "c", longtable = T, format.args = list(decimal.mark = ".", big.mark = ","),caption = "Determinant Value Percentage by Feature Class") %>% 
+  kable_styling(latex_options = c( "hold_position","repeat_header","striped"))    %>%
+  column_spec(2, bold=T) -> tb2
+  tb2
+} else {
+  kable(df, format.args = list(decimal.mark = ".", big.mark = ","),caption = "Determinant Value Percentage by Feature Class") %>% 
+  kable_styling(latex_options = c( "hold_position"))-> tb2
+  tb2
+}
+
+
+
+```
+
+
+
+## Percent of Values 'Null', 'TBD' or 'Other' by Feature Class {#pctindtFC}
+
+```{r cpctindtFC, cache=FALSE,echo=FALSE,message=FALSE,error=FALSE,warning=FALSE}
+Summary_Pct_by_FC <- sf::st_read(dsn = installationGDB, layer = paste0(compName,"_Summary_Cell_Pct_by_FC"),quiet=TRUE)
+```
+Within the standard Feature Dataset/Feature Class combinations included, the percentage of data populated with indeterminant values are recorded in Table \@ref(tab:cpctindtFC2) below.  
+
+ 
+
+For `r installationName`'s geodatabase, `r round(mean(Summary_Pct_by_FC$OTHER_PCT[!is.na(Summary_Pct_by_FC$OTHER_PCT)])*100,digits=1)`% of cells are populated with 'Other' values, `r round(mean(Summary_Pct_by_FC$TBD_PCT[!is.na(Summary_Pct_by_FC$TBD_PCT)])*100,digits=1)`% of cells are populated with values 'To be determined,' and `r round(mean(Summary_Pct_by_FC$NULL_PCT[!is.na(Summary_Pct_by_FC$NULL_PCT)])*100,digits=1)` of cells are populated with 'Null' cells, *when averaged across standard Feature Classes* included in `r installationName`'s geodatabase.  This information is also found in the `r paste0(installationName,"_Indeterminant_Data-",compName)` Excel Workbook under the '`r compName`_Summary_Cell_Pct_by_FC' table/sheet. 
+
+
+
+
+```{r cpctindtFC2, cache=FALSE,echo=FALSE,message=FALSE,error=FALSE,warning=FALSE}
+Summary_Pct_by_FC <- sf::st_read(dsn = installationGDB, layer = paste0(compName,"_Summary_Cell_Pct_by_FC"),quiet=TRUE)
+
+Summary_Pct_by_FC<-Summary_Pct_by_FC[ , -which(names(Summary_Pct_by_FC) %in% c("INSTALLATION"))]
+times100 <- function(x){x * 100}
+
+
+Summary_Pct_by_FC = Summary_Pct_by_FC%>%
+  filter(!is.na(DETERMINED_PCT)) %>% mutate_if(is.numeric, funs(round(., 3))) %>% mutate_if(is.numeric,times100) %>% arrange(FDS,UNDETERMINED_PCT) %>% dplyr::select (-c(DETERMINED_PCT,UNDETERMINED_PCT))
+
+colnames(Summary_Pct_by_FC)[3]<-"%_Other"
+colnames(Summary_Pct_by_FC)[4]<-"%_TBD"
+colnames(Summary_Pct_by_FC)[5]<-"%_Null"
+df<-Summary_Pct_by_FC
+
+if (nrow(df) > 0 ){
+  kable(df,linesep = "", booktabs = T, align = "c", longtable = T, format.args = list(decimal.mark = ".", big.mark = ","),caption="Percent Other, TBD, and Null Cells by Feature Class") %>% 
+  kable_styling(latex_options = c( "hold_position","repeat_header","striped"))  %>%
+  column_spec(1, bold=T)   -> tb2
+  tb2
+} else {
+  kable(df, format.args = list(decimal.mark = ".", big.mark = ","),caption="Percent Other, TBD, and Null Cells by Feature Class") %>% 
+  kable_styling(latex_options = c( "hold_position"))  -> tb2
+  tb2
+}
+```
+
+
+
+## 'Null' Value Counts {#nullCnt}
+`r installationName`'s geodatabase was analyzed for data with attributes 'Null' data at the Feature Class Attribute level.  `r formatC(sum(MissingData$NULL_FC_COUNT), format="d", big.mark=",")`/`r formatC(sum(MissingData$POP_VALS_COUNT), format="d", big.mark=",")` (`r round(sum(MissingData$NULL_FC_COUNT) / (sum(MissingData$POP_VALS_COUNT))*100,digits=2)`%) *null* cells exist within standard Feature Classes in `r installationName`'s geodatabase. 
+ 
+ For the purposes of this report, 'Null' data is classified as any cell within a Feature Class' Attribute Table  that contains any one of the following values:
+
+1.  "NULL"
+2.  "None"
+3.  "none"
+4.  "NONE"
+6.  "-99999"
+7.  "77777"
+8.  "NA"
+9.  "N/A"
+10. "n/a"
+11. "Null"
+
+Please see Tables \@ref(tab:cnullCntFDS) & \@ref(tab:cnullCntFC) for a count of Null cells by Feature Dataset and Feature Class, respectively.
+
+A more detailed breakdown of the individual values and counts of values for each *field* may be found in the `r installationName`'s geodatabase in the '`r compName`_MissingData' Table under the 'NULL_VALUE_COUNTS' column. Further, you may see the counts of 'Null' cells by standard Feature Class in the '`r compName`_NullCellCountbyFC' Table, or by Field in the '`r compName`_NullCellCountbyFLD' Table, in in the `r paste0(installationName,"_Indeterminant_Data-",compName)` Excel Workbook provided with this report.
+
+
+###  'Null' Count by Feature Dataset {#nullCntFDS}
+```{r cnullCntFDS, cache=FALSE,  echo=FALSE,message=FALSE,error=FALSE,warning=FALSE}
+NullCellCountbyFC <- sf::st_read(dsn = installationGDB, layer = paste0(compName,"_NullCellCountbyFC"),quiet=TRUE)
+NullCellCountbyFDS<-NullCellCountbyFC %>% group_by(FDS) %>% summarise(Total_Null_Count=sum(NULL_FC_COUNT))
+func <- function(z) if (is.numeric(z)) sum(z) else '-'
+
+NullCellCountbyFDS<-NullCellCountbyFDS %>% filter(Total_Null_Count > 0)
+
+df<-NullCellCountbyFDS
+
+
+if (nrow(df) > 0 ){
+  sum <- sum(df$Total_Null_Count)
+  sumrow<- paste0(sum," Total 'Null' Cells")
+  kable(df, linesep = "", booktabs = T, align = "c", longtable = T, format.args = list(decimal.mark = ".", big.mark = ","),caption="Count of Null Cells by Feature Dataset") %>% 
+  kable_styling(latex_options = c( "hold_position","repeat_header","striped"))%>%
+  column_spec(1, bold=T) %>%
+    footnote(general= c(sumrow))-> tb2
+  tb2
+} else {
+  sumrow<- paste0("0 Total 'Null' Cells")
+  kable(df, format.args = list(decimal.mark = ".", big.mark = ","),caption="Count of Null Cells by Feature Dataset") %>% 
+  kable_styling(latex_options = c( "hold_position"))%>%
+    footnote(general= c(sumrow))-> tb2
+  tb2
+}
+
+
+```
+
+
+
+###  'Null' Count by Feature Class {#nullCntFC}
+```{r cnullCntFC, cache=FALSE,echo=FALSE,message=FALSE,error=FALSE,warning=FALSE}
+NullCellCountbyFC <- sf::st_read(dsn = installationGDB, layer = paste0(compName,"_NullCellCountbyFC"),quiet=TRUE)
+
+NullCellCountbyFC<-NullCellCountbyFC[ , -which(names(NullCellCountbyFC) %in% c("INSTALLATION"))]
+colnames(NullCellCountbyFC)[3]<-"Total_Null_Count"
+NullCellCountbyFC<-NullCellCountbyFC %>% filter(Total_Null_Count > 0)
+
+df<-NullCellCountbyFC
+
+
+if (nrow(df) > 0 ){
+  sum <- sum(df$Total_Null_Count)
+  sumrow<- paste0(sum," Total 'Null' Cells")
+  kable(df, linesep = "", booktabs = T, align = "c", longtable = T, format.args = list(decimal.mark = ".", big.mark = ","),caption="Count of Null Cells by Feature Class")  %>% 
+  kable_styling(latex_options = c( "hold_position","repeat_header","striped"))   %>%
+  column_spec(1, bold=T)%>%
+    footnote(general= c(sumrow)) -> tb2
+  tb2
+} else {
+  sumrow<- paste0("0 Total 'Null' Cells")
+  kable(df, format.args = list(decimal.mark = ".", big.mark = ","),caption="Count of Null Cells by Feature Class")  %>% 
+  kable_styling(latex_options = c( "hold_position")) %>%
+    footnote(general= c(sumrow))-> tb2
+  tb2
+}
+
+
+```
+
+
+                           
+
+## 'TBD' Value Counts {#tbdCnt}
+`r installationName`'s geodatabase was analyzed for data with attributes 'to be determined ' (TBD) at the Feature Class Attribute level. `r formatC(sum(MissingData$TBD_FC_COUNT), format="d", big.mark=",")`/`r formatC(sum(MissingData$POP_VALS_COUNT), format="d", big.mark=",")` (`r round(sum(MissingData$TBD_FC_COUNT) / (sum(MissingData$POP_VALS_COUNT))*100,digits=2)`%) *TBD* cells exist within standard Feature Classes in `r installationName`'s geodatabase. 
+
+For the purposes of this report, TBD data is classified as any Feature Class Attribute Table cell that contains one of the following values:
+
+1. 'To be determined'
+2. 'TBD'
+3. 'Tbd'
+4. 'tbd'
+5. '99999'
+
+Please see Tables \@ref(tab:ctbdCntFDS) & \@ref(tab:ctbdCntFC) for a count of 'TBD' cells by Feature Dataset and Feature Class, respectively.
+
+A more detailed breakdown of the individual values and counts of values found for each *field* may be found in the `r paste0(installationName,"_Indeterminant_Data-",compName)` Excel Workbook within the '`r compName`_MissingData' Table under the 'TBD_VALUE_COUNTS' column. Further, you may see the counts of 'Null' cells by standard Feature Class in the '`r compName`_TBDCellCountbyFC' Table, or by Field in the '`r compName`_TBDCellCountbyFLD' Table, in the `r paste0(installationName,"_Indeterminant_Data-",compName)` Excel Workbook accompanying this report.
+
+
+###  'TBD' Count by Feature Dataset {#tbdCntFDS}
+```{r ctbdCntFDS, cache=FALSE,echo=FALSE,message=FALSE,error=FALSE,warning=FALSE}
+
+TBDCellCountbyFDS<-TBDCellCountbyFC %>% group_by(FDS) %>% summarise(Total_TBD_Count=sum(TBD_FC_COUNT))
+func <- function(z) if (is.numeric(z)) sum(z) else '-'
+TBDCellCountbyFDS<-TBDCellCountbyFDS %>% filter(Total_TBD_Count > 0)
+df<-TBDCellCountbyFDS
+
+if (nrow(df) > 0 ){
+  sum<-sum(df$Total_TBD_Count)
+  sumrow<-paste0(sum," Total 'TBD' Cells")
+  kable(df, linesep = "", booktabs = T, align = "c", longtable = T, format.args = list(decimal.mark = ".", big.mark = ","),caption="Count of TBD Cells by Feature Dataset") %>% 
+  kable_styling(latex_options = c( "hold_position","repeat_header","striped")) %>%
+  column_spec(1, bold=T)%>%
+    footnote(general= c(sumrow)) -> tb2
+  tb2
+} else {
+  sumrow<-paste0("0 Total 'TBD' Cells")
+  kable(df, format.args = list(decimal.mark = ".", big.mark = ","),caption="Count of TBD Cells by Feature Dataset") %>% 
+  kable_styling(latex_options = c( "hold_position"))%>%
+    footnote(general= c(sumrow))-> tb2
+  tb2
+}
+
+
+```
+
+
+###  'TBD' Count by Feature Class {#tbdCntFC}
+```{r ctbdCntFC, cache=FALSE,echo=FALSE,message=FALSE,error=FALSE,warning=FALSE}
+TBDCellCountbyFC<-TBDCellCountbyFC[ , -which(names(TBDCellCountbyFC) %in% c("INSTALLATION"))]
+func <- function(z) if (is.numeric(z)) sum(z) else '-'
+TBDCellCountbyFC<-TBDCellCountbyFC %>% filter(TBD_FC_COUNT > 0)
+colnames(TBDCellCountbyFC)[3]<-"Total_TBD_Count"
+df<-TBDCellCountbyFC
+
+if (nrow(df) > 0 ){
+  sum<-sum(df$Total_TBD_Count)
+  sumrow<-paste0(sum," Total 'TBD' Cells")
+  kable(df, linesep = "", booktabs = T, align = "c", longtable = T, format.args = list(decimal.mark = ".", big.mark = ","),caption="Count of TBD Cells by Feature Class")  %>% 
+  kable_styling(latex_options = c( "hold_position","repeat_header","striped"))   %>%
+  column_spec(1, bold=T)%>%
+    footnote(general= c(sumrow))-> tb2
+  tb2
+} else {
+  sumrow<-paste0("0 Total 'TBD' Cells")
+  kable(df, format.args = list(decimal.mark = ".", big.mark = ","),caption="Count of TBD Cells by Feature Class")  %>% 
+  kable_styling(latex_options = c( "hold_position")) %>%
+    footnote(general= c(sumrow)) -> tb2
+  tb2
+}
+
+
+
+```
+
+
+
+## 'Other' Value Counts {#otherCnt}
+`r installationName`'s geodatabase was analyzed for data with attributes classified as 'Other' at the Feature Class Attribute level. Overall, `r formatC(sum(MissingData$OTHER_FC_COUNT), format="d", big.mark=",")`/`r formatC(sum(MissingData$POP_VALS_COUNT), format="d", big.mark=",")` (`r round(sum(MissingData$OTHER_FC_COUNT) / (sum(MissingData$POP_VALS_COUNT))*100,digits=2)`%) *Other* cells exist within standard Feature Classes in `r installationName`'s geodatabase.  
+
+
+For the purposes of this report, 'Other' data is classified as any Feature Class Attribute Table cell that contains one of the following values:
+
+1. 'Other'
+2. 'other'
+3. 'OTHER'
+4. '88888'
+
+Please see Tables \@ref(tab:cotherCntFDS) & \@ref(tab:cotherCntFC) for a count of 'Other' cells by Feature Dataset and Feature Class, respectively.
+
+
+A more detailed breakdown of the individual values and counts of values for each *field* may be found in the `r paste0(installationName,"_Indeterminant_Data-",compName)` Excel Workbook within the '`r compName`_MissingData' table/sheet under the 'OTHER_VALUE_COUNTS' column.   Further, you may see the counts of 'Null' cells by standard Feature Class in the '`r compName`_OtherCellCountbyFC' Table, or by Field in the '`r compName`_OtherCellCountbyFLD' Table, in the `r paste0(installationName,"_Indeterminant_Data-",compName)` Excel Workbook provided with this report.
+
+###  'Other' Count by Feature Dataset {#otherCntFDS}
+```{r cotherCntFDS,cache=FALSE, echo=FALSE,message=FALSE,error=FALSE,warning=FALSE}
+
+OtherCellCountbyFDS<-OtherCellCountbyFC %>% group_by(FDS) %>% summarise(Total_Other_Count=sum(OTHER_FC_COUNT))
+OtherCellCountbyFDS<-OtherCellCountbyFDS %>% filter(Total_Other_Count > 0)
+df<-OtherCellCountbyFDS
+
+if (nrow(df) > 0 ){
+  sum<-sum(df$Total_Other_Count)
+  sumrow<- paste0(sum," Total 'Other' Cells")
+  kable(df, linesep = "", booktabs = T, align = "c", longtable = T, format.args = list(decimal.mark = ".", big.mark = ","),caption="Count of Other Cells by Feature Dataset") %>% 
+  kable_styling(latex_options = c( "hold_position","repeat_header","striped"))%>%
+  column_spec(1, bold=T)%>%
+    footnote(general= c(sumrow))  -> tb2
+  tb2
+} else {
+  sumrow<- paste0("0 Total 'Other' Cells")
+  kable(df, format.args = list(decimal.mark = ".", big.mark = ","),caption="Count of Other Cells by Feature Dataset") %>% 
+  kable_styling(latex_options = c( "hold_position"))%>%
+    footnote(general= c(sumrow))-> tb2
+  tb2
+}
+
+
+```
+
+###  'Other' Count by Feature Class {#otherCntFC}
+
+```{r cotherCntFC, cache=FALSE,echo=FALSE,message=FALSE,error=FALSE,warning=FALSE}
+OtherCellCountbyFC<-OtherCellCountbyFC[ , -which(names(OtherCellCountbyFC) %in% c("INSTALLATION"))]
+OtherCellCountbyFC<-OtherCellCountbyFC %>% filter(OTHER_FC_COUNT > 0)
+colnames(OtherCellCountbyFC)[3]<-"Total_Other_Count"
+df<-OtherCellCountbyFC
+
+if (nrow(df) > 0 ){
+  sum<-sum(df$Total_Other_Count)
+  sumrow<- paste0(sum," Total 'Other' Cells")
+  kable(df, linesep = "", booktabs = T, align = "c", longtable = T, format.args = list(decimal.mark = ".", big.mark = ","),caption="Count of Other Cells by Feature Class")  %>% 
+  kable_styling(latex_options = c( "hold_position","repeat_header","striped")) %>%
+    footnote(general= c(sumrow))  %>%
+  column_spec(1, bold=T)  -> tb2
+  tb2
+} else {
+  sumrow<- paste0("0 Total 'Other' Cells")
+  kable(df, format.args = list(decimal.mark = ".", big.mark = ","),caption="Count of Other Cells by Feature Class")  %>% 
+  kable_styling(latex_options = c( "hold_position")) %>%
+    footnote(general= c(sumrow)) -> tb2
+  tb2
+}
+
+
+```
+
+
+# Differences Between `r installationName`'s Geodatabase and the `r compName` Standard Schema {#diff}
+
+## Fields with Incorrectly Populated Domains {#diffIncDom}
+```{r cdiffIncDom1,cache=FALSE, echo=FALSE,message=FALSE,error=FALSE,warning=FALSE}
+MissingData <- sf::st_read(dsn = installationGDB, layer = paste0(compName,"_MissingData"),quiet=TRUE)
+
+MissingData<-MissingData[ , -which(names(MissingData) %in% c("INSTALLATION"))]
+incPopCountbyFC<- MissingData %>% dplyr::select(INC_POP_VALS,FDS,FC) %>% group_by(FDS,FC) %>% filter(INC_POP_VALS != '') %>% filter(INC_POP_VALS != ">90%= of determinant values are unique -- not listed here.") %>% summarise("Incorrectly_Populated_Field_Count" = n()) %>% filter("Incorrectly_Populated_Field_Count" > 0 )
+
+
+
+
+
+```
+
+Within the standard Feature Classes included in `r installationName`'s geodatabase from the `r compName` schema, this section identifies the count of domain-constrained fields that have values outside of the domain values. In total, `r sum(incPopCountbyFC$Incorrectly_Populated_Field_Count)` fields have values that are not included in a field's domain.  
+
+Please see Table \@ref(tab:cdiffIncDom2) below for the counts of incorrectly populated domains/fields by feature class.
+
+
+A more detailed breakdown of the individual incorrectly-populated values and counts of these values may be found in the `r paste0(installationName,"_Indeterminant_Data-",compName)` Excel Workbook accompanying this report within the '`r compName`_MissingData' table/sheet under the 'INC_POP_VALS' column.   
+
+
+
+
+```{r cdiffIncDom2, cache=FALSE,echo=FALSE,message=FALSE,error=FALSE,warning=FALSE}
+df<-as.data.frame(incPopCountbyFC)
+
+if (nrow(df) > 0 ){
+  sum<-sum(df$Incorrectly_Populated_Field_Count)
+  sumrow<- paste0(sum," Total Count of Fields")
+  kable(df,linesep = "", booktabs = T, align = "c", longtable = T, format.args = list(decimal.mark = ".", big.mark = ","),caption="Count of Incorrectly Populated Domains by Feature Class")  %>% 
+  kable_styling(latex_options = c( "hold_position","repeat_header","striped")) %>%
+  column_spec(1, bold=T) %>%
+    footnote(general= c(sumrow))-> tb2
+  tb2
+} else {
+  sumrow<- paste0("0 Total Count of Fields")
+  kable(df, format.args = list(decimal.mark = ".", big.mark = ","),caption="Count of Incorrectly Populated Domains by Feature Class")  %>% 
+  kable_styling(latex_options = c( "hold_position"))%>%
+    footnote(general= c(sumrow)) -> tb2
+  tb2
+}
+
+```
+
+
+
+## Fields Included in `r installationName`'s Geodatabase Not in `r compName` {#diffFLD}
+In total, `r nrow(MissingData[MissingData$FIELD_NONSDS=='T',])` fields are included in `r installationName`'s geodatabase that are not included in the `r compName` schema for each standard Feature Class included. Tables \@ref(tab:cdiffFLDnotFDS) & \@ref(tab:cdiffFLDnotFC) below lists counts of these fields by Feature Dataset and by Feature Class, respectively.  
+
+In general, across AF Installations, if the Feature Class was included, Non-standard fields derived largely from fields such as "LAST_EDITED_DATE", "LAST_EDITED_USER", or "CREATED_DATE", therefore it is recommended that you cross-reference this sections with Section \@ref(missFLDincFC), where applicable. Further, for a more detailed listing of the individual non-standard *fields* included in `r installationName`'s geodatabase, see the '`r compName`_MissingData' table/sheet in the `r paste0(installationName,"_Indeterminant_Data-",compName)` Excel Workbook under the 'NON_SDS' column. Fields that are not included the `r compName` geodatabase will have the 'NON_SDS' column equal to 'T' (for 'True').  
+
+
+### Fields Included in `r installationName`'s Geodatabase Not in `r compName` Schema by Feature Dataset {#diffFLDnotFDS}
+
+```{r cdiffFLDnotFDS, cache=FALSE, echo=FALSE,message=FALSE,error=FALSE,warning=FALSE}
+MissingData <- sf::st_read(dsn = installationGDB, layer = paste0(compName,"_MissingData"),quiet=TRUE)
+
+MissingData<-MissingData[ , -which(names(MissingData) %in% c("INSTALLATION"))]
+nonSDSCntbyFDS<-MissingData  %>% group_by(FDS) %>% filter(FIELD_NONSDS == 'T')  %>% summarise("NON_SDS_FIELD_COUNT" = n())  %>% dplyr::select(FDS,NON_SDS_FIELD_COUNT)
+
+df<-nonSDSCntbyFDS
+
+
+if (nrow(df) > 0 ){
+  sum <- sum(df$NON_SDS_FIELD_COUNT)
+  sumrow<- paste0(sum," Total Count of Fields")
+  kable(df, linesep = "", booktabs = T, align = "c", longtable = T,caption="Count of Fields not in Target Geodatabase by Feature Dataset")  %>% 
+  kable_styling(latex_options = c( "hold_position","repeat_header","striped"))%>%
+  column_spec(1, bold=T)%>%
+    footnote(general= c(sumrow))   -> tb2
+  tb2
+} else {
+  sumrow<- paste0("0 Total Count of Fields")
+   kable(df,caption="Count of Fields not in Target Geodatabase  by Feature Dataset")  %>% 
+  kable_styling(latex_options = c( "hold_position")) %>%
+    footnote(general= c(sumrow)) -> tb2
+  tb2
+}
+
+
+```
+
+
+### Fields Included in `r installationName`'s Geodatabase Not in `r compName` Schema by Feature Class {#diffFLDnot}
+
+```{r cdiffFLDnotFC, cache=FALSE,echo=FALSE,message=FALSE,error=FALSE,warning=FALSE}
+MissingData <- sf::st_read(dsn = installationGDB, layer = paste0(compName,"_MissingData"),quiet=TRUE)
+
+MissingData<-MissingData[ , -which(names(MissingData) %in% c("INSTALLATION"))]
+nonSDSCntbyFC<-MissingData  %>% group_by(FDS,FC) %>% filter(FIELD_NONSDS == 'T')  %>% summarise("NON_SDS_FIELD_COUNT" = n())  %>% dplyr::select(FDS,FC,NON_SDS_FIELD_COUNT)
+
+
+df<- as.data.frame(nonSDSCntbyFC)
+ 
+
+if (nrow(df) > 0 ){
+  sum <- sum(df$NON_SDS_FIELD_COUNT)
+  sumrow<- paste0(sum," Total Count of Fields")
+  kable(df,linesep = "",booktabs = T, align = "c", longtable = T,caption="Count of Fields not in Target Geodatabase by Feature Class")  %>% 
+  kable_styling(latex_options = c( "hold_position","repeat_header","striped")) %>%
+  column_spec(1, bold=T)%>%
+    footnote(general= c(sumrow)) -> tb2
+  tb2
+} else {
+  sumrow<- paste0("0 Total Count of Fields")
+   kable(df,caption="Count of Fields not in Target Geodatabase by Feature Class")  %>% 
+  kable_styling(latex_options = c( "hold_position"))%>%
+    footnote(general= c(sumrow))  -> tb2
+  tb2
+}
+
+
+
+```
+
+
+
+
+\pagebreak
+
+
+# Production Information {#prodInfo}
+This report was created using R [@R-base] and RStudio [@Rstudio] with the following packages: 
+
+- bookdown [@R-bookdown]
+- knitr [@R-knitr]
+- rmarkdown [@R-rmarkdown]
+- tinytex [@R-tinytex]
+
+
+For posterity, package information is listed below:   
+```{r,cache=FALSE,eval=TRUE, echo=FALSE,error=FALSE,warning=FALSE}
+sessionInfo()
+
+# R version 3.4.1 (2017-06-30)
+# Platform: x86_64-w64-mingw32/x64 (64-bit)
+# Running under: Windows >= 8 x64 (build 9200)
+# 
+# Matrix products: default
+# 
+# locale:
+# [1] LC_COLLATE=English_United States.1252 
+# [2] LC_CTYPE=English_United States.1252   
+# [3] LC_MONETARY=English_United States.1252
+# [4] LC_NUMERIC=C                          
+# [5] LC_TIME=English_United States.1252    
+# 
+# attached base packages:
+# [1] stats     graphics  grDevices utils    
+# [5] datasets  methods   base     
+# 
+# loaded via a namespace (and not attached):
+#  [1] compiler_3.4.1   backports_1.1.2 
+#  [3] bookdown_0.7     magrittr_1.5    
+#  [5] rprojroot_1.3-2  htmltools_0.3.6 
+#  [7] tools_3.4.1      yaml_2.1.19     
+#  [9] Rcpp_0.12.16     stringi_1.1.7   
+# [11] rmarkdown_1.9.10 knitr_1.20      
+# [13] xfun_0.1         stringr_1.3.0   
+# [15] digest_0.6.15    packrat_0.4.9-1 
+# [17] evaluate_0.10.1  
+
+```
+
