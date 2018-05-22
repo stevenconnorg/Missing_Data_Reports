@@ -80,7 +80,18 @@ if (!require('rmarkdown', character.only=TRUE)) {
 if (!require('tinytex', character.only=TRUE)) {
   devtools::install_github('yihui/tinytex')
   library(tinytex)
+  
 } else {
   library(tinytex)
+
+}
+
+# if this fails, try installing (Active) Perl on your computer and re-try. - https://www.perl.org/get.html
+# https://github.com/yihui/tinytex/issues/45
+if (tinytex:::is_tinytex()){
+  print("TinyTeX already installed! -- No forced installation committed.")
+} else{
+  print("Installing TinyTeX within the TinyTeX R package (tinytex::install_tinytex())")
+  tinytex::install_tinytex()
 }
 
