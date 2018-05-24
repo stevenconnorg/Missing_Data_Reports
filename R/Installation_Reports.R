@@ -8,6 +8,12 @@ targetGDBs <- list.files(paste0(getwd(),"/dat/gdbs-target"),full.names = T)
 ### then knit pdf reports in a loop with bookdown::pdf_document2
 library(bookdown)
 library(tinytex)
+
+if (tinytex:::is_tinytex()){
+  print("TinyTeX is already installed!")
+} else {
+  tinytex::install_tinytex()
+}
 library(yaml)
 for (installationGDB in installationGDBs){
   for (targetGDB in targetGDBs){
